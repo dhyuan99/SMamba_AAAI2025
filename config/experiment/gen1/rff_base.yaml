@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - default
+
+dataset:
+  ev_repr_name: 'rff_dt=50_D=10_sigma=1.0_pol=two_channel'
+
+model:
+  backbone:
+    input_channels: 40
+    embed_dim: 64
+    resolution_hw: [256, 320]
+    gaussian_kernel: 5
+    factor: 1.2
+  fpn:
+    depth: 0.67

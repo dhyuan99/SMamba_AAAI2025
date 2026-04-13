@@ -32,7 +32,7 @@ import torch
 from tqdm import tqdm
 
 from utils.preprocessing import _blosc_opts
-from data.utils.representations import MixedDensityEventStack, StackedHistogram, RepresentationBase
+from data.utils.representations import MixedDensityEventStack, StackedHistogram, RFFRepresentation, RepresentationBase
 
 
 class DataKeys(Enum):
@@ -626,9 +626,20 @@ class MixedDensityEventStackConf:
     event_window_extraction: EventWindowExtractionConf = field(default_factory=EventWindowExtractionConf)
 
 
+@dataclass
+class RFFConf:
+    name: str = MISSING
+    dim: int = MISSING
+    sigma: float = MISSING
+    polarity: str = MISSING
+    seed: int = 42
+    event_window_extraction: EventWindowExtractionConf = field(default_factory=EventWindowExtractionConf)
+
+
 name_2_structured_config = {
     'stacked_histogram': StackedHistogramConf,
     'mixeddensity_stack': MixedDensityEventStackConf,
+    'rff': RFFConf,
 }
 
 
@@ -674,9 +685,26 @@ class MixedDensityStackFactory(EventRepresentationFactory):
                                       count_cutoff=self.config.count_cutoff)
 
 
+class RFFFactory(EventRepresentationFactory):
+    @property
+    def name(self) -> str:
+        extraction = self.config.event_window_extraction
+        return (f'{self.config.name}_{aggregation_2_string[extraction.method]}={extraction.value}'
+                f'_D={self.config.dim}_sigma={self.config.sigma}_pol={self.config.polarity}')
+
+    def create(self, height: int, width: int) -> RFFRepresentation:
+        return RFFRepresentation(dim=self.config.dim,
+                                 height=height,
+                                 width=width,
+                                 sigma=self.config.sigma,
+                                 polarity=self.config.polarity,
+                                 seed=self.config.seed)
+
+
 name_2_ev_repr_factory = {
     'stacked_histogram': StackedHistogramFactory,
     'mixeddensity_stack': MixedDensityStackFactory,
+    'rff': RFFFactory,
 }
 
 

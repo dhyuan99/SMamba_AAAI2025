@@ -216,3 +216,111 @@ class MixedDensityEventStack(RepresentationBase):
         if self.count_cutoff is not None:
             representation = th.clamp(representation, min=-self.count_cutoff, max=self.count_cutoff)
         return representation
+
+
+class RFFRepresentation(RepresentationBase):
+    """Per-pixel RFF mean embedding of the temporal event distribution.
+
+    Each pixel stores the mean embedding of its event timestamps in a
+    D-dimensional complex space (stored as 2D real channels). This encodes
+    a continuous temporal density estimate via Random Fourier Features.
+
+    Output shape:
+        two_channel  → (4*D, H, W)  — separate pos/neg embeddings
+        weighted     → (2*D, H, W)  — polarity-weighted single embedding
+        ignore       → (2*D, H, W)  — polarity ignored
+    """
+
+    def __init__(self, dim: int, height: int, width: int, sigma: float = 1.0,
+                 polarity: str = 'two_channel', seed: int = 42):
+        assert dim >= 1
+        assert polarity in ('two_channel', 'weighted', 'ignore')
+        self.dim = dim
+        self.height = height
+        self.width = width
+        self.sigma = sigma
+        self.polarity = polarity
+
+        rng = np.random.default_rng(seed)
+        T_np = rng.normal(0.0, sigma, size=dim).astype(np.float32)
+        self._T = th.tensor(T_np)  # (D,) on CPU; moved to device on first use
+
+    @staticmethod
+    def get_numpy_dtype() -> np.dtype:
+        return np.dtype('float32')
+
+    @staticmethod
+    def get_torch_dtype() -> th.dtype:
+        return th.float32
+
+    def get_shape(self) -> Tuple[int, int, int]:
+        C = 4 * self.dim if self.polarity == 'two_channel' else 2 * self.dim
+        return C, self.height, self.width
+
+    def construct(self, x: th.Tensor, y: th.Tensor, pol: th.Tensor, time: th.Tensor) -> th.Tensor:
+        device = x.device
+        D = self.dim
+        C = 4 * D if self.polarity == 'two_channel' else 2 * D
+        num_pixels = self.height * self.width
+
+        if x.numel() == 0:
+            return th.zeros(C, self.height, self.width, dtype=th.float32, device=device)
+
+        T = self._T.to(device)  # (D,)
+
+        t = time.float()
+        t_min, t_max = t.min(), t.max()
+        delta = (t_max - t_min).clamp(min=1.0)
+        t_norm = (t - t_min) / delta  # (n,)
+
+        phase = t_norm.unsqueeze(1) * T.unsqueeze(0)  # (n, D)
+        cos_p = th.cos(phase)
+        sin_p = th.sin(phase)
+
+        pixel_idx = y.long() * self.width + x.long()  # (n,)
+
+        if self.polarity == 'two_channel':
+            result = th.zeros(4 * D, num_pixels, dtype=th.float32, device=device)
+            count_pos = th.zeros(num_pixels, dtype=th.float32, device=device)
+            count_neg = th.zeros(num_pixels, dtype=th.float32, device=device)
+
+            pos_mask = pol > 0
+            neg_mask = ~pos_mask
+
+            if pos_mask.any():
+                idx = pixel_idx[pos_mask]
+                result[:D].scatter_add_(1, idx.unsqueeze(0).expand(D, -1), cos_p[pos_mask].T)
+                result[D:2*D].scatter_add_(1, idx.unsqueeze(0).expand(D, -1), sin_p[pos_mask].T)
+                count_pos.scatter_add_(0, idx, th.ones(idx.numel(), dtype=th.float32, device=device))
+
+            if neg_mask.any():
+                idx = pixel_idx[neg_mask]
+                result[2*D:3*D].scatter_add_(1, idx.unsqueeze(0).expand(D, -1), cos_p[neg_mask].T)
+                result[3*D:].scatter_add_(1, idx.unsqueeze(0).expand(D, -1), sin_p[neg_mask].T)
+                count_neg.scatter_add_(0, idx, th.ones(idx.numel(), dtype=th.float32, device=device))
+
+            mask_p = count_pos > 0
+            result[:2*D, mask_p] /= count_pos[mask_p].unsqueeze(0)
+            mask_n = count_neg > 0
+            result[2*D:, mask_n] /= count_neg[mask_n].unsqueeze(0)
+
+        else:
+            result = th.zeros(2 * D, num_pixels, dtype=th.float32, device=device)
+            count = th.zeros(num_pixels, dtype=th.float32, device=device)
+
+            if self.polarity == 'weighted':
+                w = pol.float() * 2.0 - 1.0  # {0,1} → {-1,+1}
+                cos_w = cos_p * w.unsqueeze(1)
+                sin_w = sin_p * w.unsqueeze(1)
+            else:
+                cos_w, sin_w = cos_p, sin_p
+
+            idx_exp = pixel_idx.unsqueeze(0).expand(D, -1)
+            result[:D].scatter_add_(1, idx_exp, cos_w.T)
+            result[D:].scatter_add_(1, idx_exp, sin_w.T)
+            count.scatter_add_(0, pixel_idx, th.ones(x.numel(), dtype=th.float32, device=device))
+
+            mask = count > 0
+            result[:, mask] /= count[mask].unsqueeze(0)
+
+        return result.reshape(C, self.height, self.width)
