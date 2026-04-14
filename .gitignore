@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.o
+*.egg-info/
+dist/
+build/
+.hydra/
+outputs/
+wandb/
+lightning_logs/
