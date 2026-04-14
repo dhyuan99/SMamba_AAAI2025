@@ -1,5 +1,5 @@
 name: "rff"
-dim: 10
+dim: 16
 sigma: 1.0
 polarity: "two_channel"
 seed: 42
