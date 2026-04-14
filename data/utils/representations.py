@@ -245,10 +245,9 @@ class RFFRepresentation(RepresentationBase):
 
         # Quantile-based frequency sampling: evenly-spaced normal quantiles,
         # shuffled. Gives lower-variance RFF approximation than random sampling.
-        import math
+        from scipy.special import erfinv
         y = np.linspace(0.0, 1.0, dim + 2)[1:-1]  # (D,) in (0, 1) exclusive
-        T_np = np.array([math.sqrt(2.0) * math.erfinv(2.0 * yi - 1.0) * sigma
-                         for yi in y], dtype=np.float32)
+        T_np = (np.sqrt(2.0) * erfinv(2.0 * y - 1.0) * sigma).astype(np.float32)
         rng = np.random.default_rng(seed)
         rng.shuffle(T_np)
         self._T = th.tensor(T_np)  # (D,) on CPU; moved to device on first use
