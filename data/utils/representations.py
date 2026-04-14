@@ -243,8 +243,12 @@ class RFFRepresentation(RepresentationBase):
         self.sigma = sigma
         self.polarity = polarity
 
+        # Quantile-based frequency sampling: evenly-spaced normal quantiles,
+        # shuffled. Gives lower-variance RFF approximation than random sampling.
+        y = np.linspace(0.0, 1.0, dim + 2)[1:-1]  # (D,) in (0, 1) exclusive
+        T_np = (np.sqrt(2.0) * np.erfinv(2.0 * y - 1.0) * sigma).astype(np.float32)
         rng = np.random.default_rng(seed)
-        T_np = rng.normal(0.0, sigma, size=dim).astype(np.float32)
+        rng.shuffle(T_np)
         self._T = th.tensor(T_np)  # (D,) on CPU; moved to device on first use
 
     @staticmethod
