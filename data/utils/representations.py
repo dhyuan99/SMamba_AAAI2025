@@ -231,13 +231,15 @@ class RFFRepresentation(RepresentationBase):
         ignore       → (2*D, H, W)  — polarity ignored
     """
 
-    def __init__(self, dim: int, height: int, width: int, sigma: float = 1.0,
-                 polarity: str = 'two_channel', seed: int = 42):
+    def __init__(self, dim: int, height: int, width: int, delta_t_us: float,
+                 sigma: float = 1.0, polarity: str = 'two_channel', seed: int = 42):
         assert dim >= 1
         assert polarity in ('two_channel', 'weighted', 'ignore')
+        assert delta_t_us > 0
         self.dim = dim
         self.height = height
         self.width = width
+        self.delta_t_us = delta_t_us
         self.sigma = sigma
         self.polarity = polarity
 
@@ -269,9 +271,7 @@ class RFFRepresentation(RepresentationBase):
         T = self._T.to(device)  # (D,)
 
         t = time.float()
-        t_min, t_max = t.min(), t.max()
-        delta = (t_max - t_min).clamp(min=1.0)
-        t_norm = (t - t_min) / delta  # (n,)
+        t_norm = (t - t.min()) / self.delta_t_us  # (n,), fixed window normalization
 
         phase = t_norm.unsqueeze(1) * T.unsqueeze(0)  # (n, D)
         cos_p = th.cos(phase)

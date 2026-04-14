@@ -693,9 +693,11 @@ class RFFFactory(EventRepresentationFactory):
                 f'_D={self.config.dim}_sigma={self.config.sigma}_pol={self.config.polarity}')
 
     def create(self, height: int, width: int) -> RFFRepresentation:
+        delta_t_us = self.config.event_window_extraction.value * 1000  # ms → µs
         return RFFRepresentation(dim=self.config.dim,
                                  height=height,
                                  width=width,
+                                 delta_t_us=delta_t_us,
                                  sigma=self.config.sigma,
                                  polarity=self.config.polarity,
                                  seed=self.config.seed)
